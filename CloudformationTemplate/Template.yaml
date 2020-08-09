@@ -1,0 +1,47 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  This template creates Kittens Carousel App on EC2 instance.
+  It also create a security group allowing HTTP (Port 80) and SSH (22) Connections from anywhere.
+Resources:
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable HTTP for Apache Web Server
+      SecurityGroupIngress: 
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties: 
+      ImageId: ami-02354e95b39ca8dec
+      InstanceType: t2.micro
+      KeyName: EC2democlarusway
+      SecurityGroupIds: 
+        - !Ref WebServerSecurityGroup
+      Tags: 
+        - Key: Name
+          Value: !Sub Web Server of ${AWS::StackName} Stack
+      UserData:
+        Fn::Base64: |
+          #! /bin/bash
+          yum update -y
+          yum install httpd -y
+          cd /var/www/html
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat0.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat1.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat2.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/index.html
+          systemctl start httpd
+          systemctl enable httpd
+Outputs:
+  WebsiteURL:
+    Description: Kittens Carousel Application URL
+    Value: !Sub 
+      - http://${PublicAddress}
+      - PublicAddress: !GetAtt WebServerInstance.PublicDnsName
