@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+              Create EC2 instance and deploy kittencarouselfinalversion project to the instance after installing apache webserver along 
+              with the following components: 
+              1.  Application Load Balancer with Auto Scaling Group of Amazon Linux 2 EC2 Instances within default VPC.
+              2.  Application Load Balancer should be placed within a security group which allows HTTP (80) connections from anywhere.
+              3. EC2 instances should be placed within a different security group which allows HTTP (80) connections only from the security group of Application Load Balancer.
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: EC2democlarusway
+    AllowedValues:
+      - EC2democlarusway
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VpcId of your existing Virtual Private Cloud (VPC)
+    ConstraintDescription: >-
+      must be the VPC Id of an existing Virtual Private Cloud. Outbound traffic
+      for the default security group associated with this VPC should be enabled.
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The list of SubnetIds in your Virtual Private Cloud (VPC)
+    ConstraintDescription: >-
+      must be a list of at least two existing subnets associated with at least
+      two different availability zones. They should be residing in the selected
+      Virtual Private Cloud.  
+  InstanceType:
+    Description: WebServer EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - m3.large
+    ConstraintDescription: must be a valid EC2 instance type.
+  AllowedIP:
+    Description: The IP address range that can have access for ports 22 and 80
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+
+Resources:
+  myLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties: 
+      ImageId: ami-02354e95b39ca8dec
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      LaunchConfigurationName: AWSlaunchconfiguration
+      SecurityGroups: 
+        - !Ref EC2SecurityGroup  
+      UserData: 
+        Fn::Base64: !Sub |
+          #! /bin/bash
+          yum update -y
+          yum install httpd -y
+          cd /var/www/html
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat0.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat1.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/cat2.jpg
+          curl --remote-name --location https://raw.githubusercontent.com/ajayram91/kittencarouselfinalversion/master/StaticWeb/index.html
+          systemctl start httpd
+          systemctl enable httpd  
+
+  MyLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: Project2LoadBalancer
+      SecurityGroups: 
+        - !Ref LBSecurityGroup
+      Subnets: !Ref Subnets
+      Type: application 
+
+ 
+  LoadBalancerListener:
+    Type: "AWS::ElasticLoadBalancingV2::Listener"
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref MyLoadBalancer
+      Port: 80
+      Protocol: HTTP  
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ProjectTargetGroup
+      TargetType: instance
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      Port: 80
+      Protocol: HTTP
+      UnhealthyThresholdCount: 5
+      VpcId: !Ref VpcId  
+
+   
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: AutoScalingGroup
+      DesiredCapacity: 2
+      HealthCheckGracePeriod: 90
+      HealthCheckType: ELB
+      LaunchConfigurationName: !Ref myLaunchConfiguration
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      MaxSize: 3
+      MinSize: 1
+      Tags: 
+        - Key: Name
+          Value: !Sub 'Web Server of ${AWS::StackName}'
+          PropagateAtLaunch: true
+      VPCZoneIdentifier: !Ref Subnets
+
+  LBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22 and access to port 80
+      GroupName: AllowLoadBal2EC2
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedIP
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref AllowedIP
+      VpcId: !Ref VpcId
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22 and access to port 80
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedIP
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupName: AllowLoadBal2EC2
+      VpcId: !Ref VpcId
+         
+Outputs:
+  LoadBalancerDNSName:
+    Description: The DNSName of the Load Balancer
+    Value: !GetAtt MyLoadBalancer.DNSName
+  
+ 
